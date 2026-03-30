@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
+import { supabase } from "@/lib/supabase"
 
 interface Release {
   id: string
@@ -23,11 +24,9 @@ interface Release {
   artistOrigin: string
 }
 
-// Empty array - real release data would be fetched from an API
-const mockReleases: Release[] = []
-
 export function UpcomingReleases() {
-  const [releases] = useState<Release[]>(mockReleases)
+  const [releases, setReleases] = useState<Release[]>([])
+  const [loading, setLoading] = useState(true)
   const [genreFilter, setGenreFilter] = useState("all")
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [mounted, setMounted] = useState(false)
@@ -36,18 +35,66 @@ export function UpcomingReleases() {
     setMounted(true)
   }, [])
 
+  useEffect(() => {
+    async function fetchReleases() {
+      const { data, error } = await supabase
+        .from("releases")
+        .select(`
+          id,
+          title,
+          type,
+          release_date,
+          bandcamp_url,
+          soundcloud_url,
+          youtube_url,
+          artist_name,
+          artists ( name, genres, city )
+        `)
+        .order("release_date", { ascending: false })
+        .limit(20)
+
+      if (error) {
+        console.error("Error fetching releases:", error.message)
+        setLoading(false)
+        return
+      }
+
+      const mapped: Release[] = (data || []).map((row: any) => {
+        const artistName = row.artists?.name ?? row.artist_name ?? "Unknown Artist"
+        const genres: string[] = row.artists?.genres ?? []
+        const streamingLink =
+          row.bandcamp_url ?? row.youtube_url ?? row.soundcloud_url ?? "#"
+
+        return {
+          id: row.id,
+          artist: artistName,
+          title: row.title,
+          releaseDate: row.release_date ?? "",
+          genre: genres[0] ?? "other",
+          type: (row.type as "album" | "ep" | "single") ?? "single",
+          streamingLink,
+          artistOrigin: row.artists?.city ?? "NJ",
+        }
+      })
+
+      setReleases(mapped)
+      setLoading(false)
+    }
+
+    fetchReleases()
+  }, [])
+
   const shareRelease = async (release: Release) => {
-    const shareText = `${release.artist} - "${release.title}" (${release.type.toUpperCase()}) - New ${release.genre} release from ${release.artistOrigin}, NJ`
-    
+    const shareText = `${release.artist} - "${release.title}" (${release.type.toUpperCase()}) — new release`
     if (navigator.share) {
       try {
         await navigator.share({
           title: `${release.artist} - ${release.title}`,
           text: shareText,
-          url: release.streamingLink
+          url: release.streamingLink,
         })
       } catch (err) {
-        if ((err as Error).name !== 'AbortError') {
+        if ((err as Error).name !== "AbortError") {
           navigator.clipboard.writeText(`${shareText}\nListen: ${release.streamingLink}`)
           setCopiedId(release.id)
           setTimeout(() => setCopiedId(null), 2000)
@@ -61,19 +108,20 @@ export function UpcomingReleases() {
   }
 
   const getDaysUntilRelease = (date: string) => {
-    if (!mounted) return null
+    if (!mounted || !date) return null
     const [year, month, day] = date.split("-").map(Number)
     const releaseDate = new Date(year, month - 1, day)
     const today = new Date()
     today.setHours(0, 0, 0, 0)
-    const diffTime = releaseDate.getTime() - today.getTime()
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+    const diffDays = Math.ceil(
+      (releaseDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+    )
     return diffDays
   }
 
-  const filteredReleases = releases
-    .filter(release => genreFilter === "all" || release.genre === genreFilter)
-    .sort((a, b) => new Date(a.releaseDate).getTime() - new Date(b.releaseDate).getTime())
+  const filteredReleases = releases.filter(
+    (r) => genreFilter === "all" || r.genre === genreFilter
+  )
 
   return (
     <div>
@@ -98,8 +146,15 @@ export function UpcomingReleases() {
           </SelectContent>
         </Select>
       </div>
+
       <div className="space-y-3">
-        {filteredReleases.map((release) => {
+        {loading && (
+          <div className="py-8 text-center">
+            <p className="text-sm text-muted-foreground">Loading releases...</p>
+          </div>
+        )}
+
+        {!loading && filteredReleases.map((release) => {
           const daysUntil = getDaysUntilRelease(release.releaseDate)
           return (
             <article
@@ -118,9 +173,15 @@ export function UpcomingReleases() {
                     </Badge>
                   </div>
                   <p className="text-sm text-muted-foreground italic">{release.title}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {daysUntil <= 0 ? "Out now" : daysUntil === 1 ? "Tomorrow" : `In ${daysUntil} days`}
-                  </p>
+                  {daysUntil !== null && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {daysUntil <= 0
+                        ? "Out now"
+                        : daysUntil === 1
+                        ? "Tomorrow"
+                        : `In ${daysUntil} days`}
+                    </p>
+                  )}
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   <Button
@@ -135,12 +196,7 @@ export function UpcomingReleases() {
                       <Share2 className="h-3 w-3" />
                     )}
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6"
-                    asChild
-                  >
+                  <Button variant="ghost" size="icon" className="h-6 w-6" asChild>
                     <a href={release.streamingLink} target="_blank" rel="noopener noreferrer">
                       <ExternalLink className="h-3 w-3" />
                     </a>
@@ -150,14 +206,13 @@ export function UpcomingReleases() {
             </article>
           )
         })}
-        {filteredReleases.length === 0 && (
+
+        {!loading && filteredReleases.length === 0 && (
           <div className="py-8 text-center">
             <Disc3 className="h-8 w-8 mx-auto text-muted-foreground/50 mb-3" />
-            <p className="text-sm text-muted-foreground">
-              No upcoming releases to display
-            </p>
+            <p className="text-sm text-muted-foreground">No releases to display</p>
             <p className="text-xs text-muted-foreground/70 mt-1">
-              Connect to a data source to see real release announcements
+              Add releases in the admin dashboard to see them here
             </p>
           </div>
         )}

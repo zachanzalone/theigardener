@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Calendar, MapPin, Ticket, Share2, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,8 +12,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
+import { supabase } from "@/lib/supabase"
 
-// Format date without timezone issues - parse as local date
 function formatDate(dateStr: string) {
   const [year, month, day] = dateStr.split("-").map(Number)
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -31,29 +31,69 @@ interface Show {
   artistOrigin: string
 }
 
-// Empty array - real show data would be fetched from an API
-const mockShows: Show[] = []
-
 export function UpcomingShows() {
-  const [shows] = useState<Show[]>(mockShows)
+  const [shows, setShows] = useState<Show[]>([])
+  const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [locationFilter, setLocationFilter] = useState("all")
   const [sortBy, setSortBy] = useState<"date" | "artist">("date")
   const [copiedId, setCopiedId] = useState<string | null>(null)
 
+  useEffect(() => {
+    async function fetchShows() {
+      const today = new Date().toISOString().split("T")[0]
+      const { data, error } = await supabase
+        .from("shows")
+        .select(`
+          id,
+          title,
+          date,
+          doors_time,
+          ticket_url,
+          venues ( name, city )
+        `)
+        .eq("cancelled", false)
+        .gte("date", today)
+        .order("date", { ascending: true })
+        .limit(30)
+
+      if (error) {
+        console.error("Error fetching shows:", error.message)
+        setLoading(false)
+        return
+      }
+
+      const mapped: Show[] = (data || []).map((row: any) => ({
+        id: row.id,
+        artist: row.title,
+        venue: row.venues?.name ?? "TBA",
+        date: row.date,
+        time: row.doors_time
+          ? row.doors_time.substring(0, 5)
+          : "Doors TBA",
+        ticketLink: row.ticket_url ?? "#",
+        venueLocation: row.venues?.city ?? "",
+        artistOrigin: "NJ",
+      }))
+
+      setShows(mapped)
+      setLoading(false)
+    }
+
+    fetchShows()
+  }, [])
+
   const shareShow = async (show: Show) => {
     const shareText = `${show.artist} live at ${show.venue}, ${show.venueLocation} - ${formatDate(show.date)} at ${show.time}`
-    
     if (navigator.share) {
       try {
         await navigator.share({
           title: `${show.artist} at ${show.venue}`,
           text: shareText,
-          url: show.ticketLink
+          url: show.ticketLink,
         })
       } catch (err) {
-        // User cancelled or share failed, fallback to clipboard
-        if ((err as Error).name !== 'AbortError') {
+        if ((err as Error).name !== "AbortError") {
           navigator.clipboard.writeText(`${shareText}\nTickets: ${show.ticketLink}`)
           setCopiedId(show.id)
           setTimeout(() => setCopiedId(null), 2000)
@@ -67,15 +107,19 @@ export function UpcomingShows() {
   }
 
   const filteredShows = shows
-    .filter(show => 
-      show.artist.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      show.venue.toLowerCase().includes(searchTerm.toLowerCase())
+    .filter(
+      (show) =>
+        show.artist.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        show.venue.toLowerCase().includes(searchTerm.toLowerCase())
     )
-    .filter(show => locationFilter === "all" || show.venueLocation.toLowerCase().includes(locationFilter.toLowerCase()))
+    .filter(
+      (show) =>
+        locationFilter === "all" ||
+        show.venueLocation.toLowerCase().includes(locationFilter.toLowerCase())
+    )
     .sort((a, b) => {
-      if (sortBy === "date") {
+      if (sortBy === "date")
         return new Date(a.date).getTime() - new Date(b.date).getTime()
-      }
       return a.artist.localeCompare(b.artist)
     })
 
@@ -105,7 +149,10 @@ export function UpcomingShows() {
               <SelectItem value="newark">North - Newark</SelectItem>
             </SelectContent>
           </Select>
-          <Select value={sortBy} onValueChange={(v) => setSortBy(v as "date" | "artist")}>
+          <Select
+            value={sortBy}
+            onValueChange={(v) => setSortBy(v as "date" | "artist")}
+          >
             <SelectTrigger className="h-9 w-[100px] text-sm">
               <SelectValue placeholder="Sort" />
             </SelectTrigger>
@@ -116,8 +163,15 @@ export function UpcomingShows() {
           </Select>
         </div>
       </div>
+
       <div className="space-y-3">
-        {filteredShows.map((show) => (
+        {loading && (
+          <div className="py-8 text-center">
+            <p className="text-sm text-muted-foreground">Loading shows...</p>
+          </div>
+        )}
+
+        {!loading && filteredShows.map((show) => (
           <article
             key={show.id}
             className="group border-b border-border pb-3 last:border-0 last:pb-0"
@@ -154,12 +208,7 @@ export function UpcomingShows() {
                     <Share2 className="h-3 w-3" />
                   )}
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6"
-                  asChild
-                >
+                <Button variant="ghost" size="icon" className="h-6 w-6" asChild>
                   <a href={show.ticketLink} target="_blank" rel="noopener noreferrer">
                     <Ticket className="h-3 w-3" />
                   </a>
@@ -168,14 +217,13 @@ export function UpcomingShows() {
             </div>
           </article>
         ))}
-        {filteredShows.length === 0 && (
+
+        {!loading && filteredShows.length === 0 && (
           <div className="py-8 text-center">
             <Calendar className="h-8 w-8 mx-auto text-muted-foreground/50 mb-3" />
-            <p className="text-sm text-muted-foreground">
-              No upcoming shows to display
-            </p>
+            <p className="text-sm text-muted-foreground">No upcoming shows to display</p>
             <p className="text-xs text-muted-foreground/70 mt-1">
-              Connect to a data source to see real show listings
+              Add shows in the admin dashboard to see them here
             </p>
           </div>
         )}
