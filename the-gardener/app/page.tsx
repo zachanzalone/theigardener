@@ -176,7 +176,7 @@ export default function DashboardPage() {
           </div>
         </div>
 */      </section>
-*/
+
       {/* Section Navigation */}
       <nav className="border-b border-border sticky top-0 z-40 bg-background">
         <div className="mx-auto max-w-7xl px-4 md:px-8">
