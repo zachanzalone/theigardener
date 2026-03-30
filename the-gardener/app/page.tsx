@@ -72,7 +72,7 @@ export default function DashboardPage() {
           {/* Top Bar */}
           <div className="flex items-center justify-between py-2 border-b border-border text-xs">
             <span className="tracking-widest uppercase text-muted-foreground">
-              Est. 2020
+              Est. 2026
             </span>
             <span className="text-muted-foreground">{currentDate}</span>
             <div className="flex items-center gap-4">
@@ -105,7 +105,7 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      {/* Featured Articles Section */}
+/*      {/* Featured Articles Section */}
       <section className="border-b-2 border-foreground">
         <div className="mx-auto max-w-7xl px-4 md:px-8 py-8">
           <div className="grid md:grid-cols-3 gap-6">
@@ -175,8 +175,8 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
-      </section>
-
+*/      </section>
+*/
       {/* Section Navigation */}
       <nav className="border-b border-border sticky top-0 z-40 bg-background">
         <div className="mx-auto max-w-7xl px-4 md:px-8">
